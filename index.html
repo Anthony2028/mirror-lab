@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Webcam Mirror</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; padding: 32px 16px; background: #101322; color: #eef0ff; font-family: system-ui, sans-serif; }
+    main { max-width: 900px; margin: auto; }
+    h1 { margin-bottom: 8px; }
+    p { color: #b9bfd8; line-height: 1.5; }
+    video { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: contain; background: #080a12; border: 1px solid #353c62; border-radius: 16px; transform: scaleX(-1); }
+    .controls { display: flex; gap: 12px; margin-top: 20px; }
+    button { padding: 12px 22px; border: 0; border-radius: 9px; background: #b5a1ff; color: #17112d; font: inherit; font-weight: 600; cursor: pointer; }
+    button:disabled { opacity: .45; cursor: default; }
+    button:focus-visible { outline: 3px solid #83d3ff; outline-offset: 4px; }
+    #stop { background: #98caff; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Webcam Mirror</h1>
+    <p>A live, mirrored view. Your video stays on your device.</p>
+    <video id="webcam" autoplay muted playsinline aria-label="Mirrored webcam preview"></video>
+    <div class="controls">
+      <button id="start">Start camera</button>
+      <button id="stop" disabled>Stop camera</button>
+    </div>
+    <p id="status" role="status">Click Start camera and allow camera access.</p>
+  </main>
+  <script>
+    const video = document.getElementById('webcam');
+    const startButton = document.getElementById('start');
+    const stopButton = document.getElementById('stop');
+    const status = document.getElementById('status');
+    let stream = null;
+    let requestId = 0;
+
+    function stopCamera(message = 'Camera stopped.') {
+      requestId++;
+      if (stream) stream.getTracks().forEach(track => track.stop());
+      stream = null;
+      video.srcObject = null;
+      startButton.disabled = false;
+      stopButton.disabled = true;
+      status.textContent = message;
+    }
+
+    async function startCamera() {
+      const currentRequest = ++requestId;
+      startButton.disabled = true;
+      stopButton.disabled = false;
+      status.textContent = 'Waiting for camera access…';
+      try {
+        if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+          throw new Error('Open this app using HTTPS or localhost in a supported browser.');
+        }
+        const camera = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
+          audio: false
+        });
+        // Release the camera if Stop was clicked while permission was pending.
+        if (currentRequest !== requestId) {
+          camera.getTracks().forEach(track => track.stop());
+          return;
+        }
+        stream = camera;
+        video.srcObject = stream;
+        stream.getVideoTracks()[0].addEventListener('ended', () => {
+          if (currentRequest === requestId) stopCamera('Camera disconnected. Try starting it again.');
+        });
+        await video.play();
+        if (currentRequest !== requestId) return;
+        status.textContent = 'Camera is live · mirrored preview';
+        // Later: initialize MediaPipe and pass this video element to it.
+        // CSS mirrors only the display; MediaPipe receives original frames.
+        // Mirror a future landmark canvas the same way to align the overlay.
+      } catch (error) {
+        if (currentRequest !== requestId) return;
+        const messages = {
+          NotAllowedError: 'Camera access was blocked. Allow it in your browser site settings and try again.',
+          NotFoundError: 'No camera found. Connect a webcam and try again.',
+          NotReadableError: 'The camera could not start. Close other apps using it and try again.'
+        };
+        stopCamera(messages[error.name] || error.message || 'Unable to start the camera.');
+      }
+    }
+
+    startButton.addEventListener('click', startCamera);
+    stopButton.addEventListener('click', () => stopCamera());
+    window.addEventListener('pagehide', () => stopCamera());
+  </script>
+</body>
+</html>
